@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>蔵書</title>
+<link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <ul id="ndc-menu"></ul>
+  </aside>
+  <main>
+    <div id="toolbar">
+      <input id="search" type="search" placeholder="タイトル・著者で検索" autocomplete="off">
+      <div id="format-filter">
+        <label><input type="radio" name="format" value="all" checked> すべて</label>
+        <label><input type="radio" name="format" value="printed"> 紙のみ</label>
+        <label><input type="radio" name="format" value="ebook"> 電子のみ</label>
+      </div>
+    </div>
+    <div id="count"></div>
+    <table id="book-table">
+      <thead>
+        <tr>
+          <th class="col-ndc">NDC</th>
+          <th class="col-title">タイトル</th>
+          <th class="col-author">著者</th>
+          <th class="col-publisher">出版社</th>
+          <th class="col-year">出版年</th>
+          <th class="col-format">形</th>
+        </tr>
+      </thead>
+      <tbody id="book-rows"></tbody>
+    </table>
+  </main>
+</div>
+<script src="static/app.js"></script>
+</body>
+</html>
