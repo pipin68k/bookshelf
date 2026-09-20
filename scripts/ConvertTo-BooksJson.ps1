@@ -1,40 +1,39 @@
 <#
 .SYNOPSIS
-  Builds/updates data/books.json from data/isbn13.txt by querying the
-  National Diet Library Search (NDL Search) SRU API for bibliographic data
-  and NDC classification, one ISBN at a time.
+  data/isbn13.txt を元に、国立国会図書館サーチ(NDL Search)のSRU APIへ
+  ISBNを1件ずつ問い合わせて書誌情報とNDC分類を取得し、
+  data/books.json を生成・更新する。
 
 .DESCRIPTION
-  For each non-blank ISBN in the input file:
-    - If it already has an NDC classification in the output file, it is
-      skipped (no request made) unless -Force is given. This avoids
-      re-querying the API on every run, per NDL Search's request to use the
-      API considerately. Entries that have a title but no NDC (NDL simply
-      has no NDC on file for some, mostly older, titles) are retried on
-      every run, since re-cataloging can add it later.
-    - Otherwise the script queries https://ndlsearch.ndl.go.jp/api/sru
-      (recordSchema=dcndl), waits -IntervalSeconds, and parses the response.
-    - When an ISBN matches multiple source records (NDL Search aggregates
-      records from many participating libraries), the script prefers the
-      record from NDL's own catalog (repository R100000002) since it is
-      consistently the most complete; otherwise it falls back to the first
-      returned record.
-    - An ISBN NDL has no data for gets a stub entry (title/author/etc. left
-      null) rather than being dropped, matching the app's existing
-      "(タイトル未設定)" fallback display.
-  Entries in the existing books.json that are not ISBN-driven (e.g.
-  manually added ebooks) are left untouched.
+  入力ファイルの空行を除く各ISBNについて:
+    - 出力ファイルに既にNDC分類まで取得済みのエントリがあれば、
+      -Force を指定しない限りリクエストをスキップする(APIへ毎回
+      問い合わせない)。これはNDL Searchを配慮して使うため。
+      タイトルは取れたがNDCが不明なエントリ(NDL側にそもそもNDCが
+      登録されていない、主に古いタイトルに多い)は、後日の再目録化で
+      NDCが付与される可能性があるため毎回再試行する。
+    - スキップしない場合は https://ndlsearch.ndl.go.jp/api/sru
+      (recordSchema=dcndl)へ問い合わせ、-IntervalSeconds 待ってから
+      レスポンスを解析する。
+    - 1つのISBNに複数の候補レコードがある場合(NDL Searchは各participating
+      library=参加図書館のレコードを集約して返す)、NDL自身の書誌
+      (リポジトリR100000002)を優先する。これが最も情報が揃っている
+      ことが多いため。なければ最初のレコードを使う。
+    - NDLにデータがないISBNは、削除せずにスタブ(title/author等をnullの
+      まま)として記録する。アプリ側の「(タイトル未設定)」表示に対応する。
+  既存のbooks.jsonのうち、ISBN起点でないエントリ(手動追加した電子書籍等)
+  はそのまま変更しない。
 
 .PARAMETER IntervalSeconds
-  Minimum delay between actual NDL Search API requests. Default 2 seconds,
-  per NDL Search's request not to send requests in rapid succession.
+  NDL Searchへの実際のリクエスト間の最小待機秒数。既定2秒。
+  NDL Searchから急なリクエストを避けるよう求められているため。
 
 .PARAMETER Force
-  Re-query every ISBN, including ones that already have an NDC classification.
+  NDC分類を取得済みのエントリも含め、全ISBNを再取得する。
 
 .PARAMETER Limit
-  Only process the first N ISBNs that actually need a request (0 = no
-  limit). Useful for trying the script out before running it on the full list.
+  実際にリクエストが必要なISBNのうち、先頭N件だけ処理する(0で無制限)。
+  全件実行する前にお試しで動かす用途。
 
 .EXAMPLE
   .\scripts\ConvertTo-BooksJson.ps1
@@ -53,7 +52,7 @@ $ErrorActionPreference = "Stop"
 
 $SruEndpoint = "https://ndlsearch.ndl.go.jp/api/sru"
 $UserAgent = "private-bookshelf-build-script/1.0 (personal, non-commercial use)"
-$PreferredRepository = "R100000002" # NDL's own catalog (全国書誌) - most complete when present
+$PreferredRepository = "R100000002" # NDL自身の書誌(全国書誌) - 揃っていることが多い
 
 $Ns = @{
     srw     = "http://www.loc.gov/zing/srw/"
@@ -65,15 +64,20 @@ $Ns = @{
     foaf    = "http://xmlns.com/foaf/0.1/"
 }
 
-# --- deterministic UUID v5 (SHA-1 name-based), used so re-running the
-#     script on an already-fetched ISBN reuses the same id. ---
-$Uuid5Namespace = [guid]"6ba7b811-9dad-11d1-80b4-00c04fd430c8" # standard "URL" namespace
+# --- 決定論的なUUID v5(SHA-1のname-based)。同じISBNを再実行しても
+#     同じidになるようにするため。 ---
+# ISBNはURLでもDNS名でもOIDでもX.500 DNでもないので、RFC 4122が
+# 定義済みの名前空間はどれも当てはまらない。RFC 4122 §4.3の通り、
+# アプリケーション独自の名前空間UUIDを新たに割り当てるのが本来の使い方。
+# これはこのアプリ用に一度だけ生成したもの([guid]::NewGuid())で、
+# 実行のたびにidがぶれないよう固定しておく必要がある。
+$Uuid5Namespace = [guid]"57d2ddca-2596-430c-94c3-306625710373" # bookshelf独自の名前空間
 
 function New-Uuid5 {
     param([string]$Name)
     $nsBytes = $Uuid5Namespace.ToByteArray()
-    # .NET Guid byte order for the first 3 fields is little-endian; swap to
-    # the RFC 4122 network byte order before hashing.
+    # .NET のGuidは先頭3フィールドがリトルエンディアンなので、
+    # ハッシュ計算の前にRFC 4122のネットワークバイト順に並び替える。
     $swapped = @(
         $nsBytes[3], $nsBytes[2], $nsBytes[1], $nsBytes[0],
         $nsBytes[5], $nsBytes[4],
@@ -90,10 +94,9 @@ function New-Uuid5 {
     return [guid]::new($swappedBack).ToString()
 }
 
-# NOTE: XmlNamespaceManager implements IEnumerable, so a plain `return`
-# would have PowerShell silently unroll it into its enumerated namespace
-# prefixes instead of returning the object itself. Write-Output -NoEnumerate
-# prevents that.
+# 注: XmlNamespaceManagerはIEnumerableを実装しているため、素の`return`だと
+# PowerShellがオブジェクト自体ではなく列挙された名前空間プレフィックスの方を
+# 黙って展開して返してしまう。Write-Output -NoEnumerate でそれを防ぐ。
 function New-XmlNamespaceManager {
     param([xml]$Xml)
     $nsmgr = New-Object System.Xml.XmlNamespaceManager($Xml.NameTable)
@@ -114,8 +117,8 @@ function ConvertTo-CleanAuthor {
     param([string]$Raw)
     if (-not $Raw) { return $null }
     $s = $Raw
-    # Strip trailing NDL cataloging role words (repeated, e.g. "著" then a
-    # leftover separator), e.g. "柳田邦男 著" -> "柳田邦男".
+    # NDLの目録での役割語(末尾に繰り返し付くことがある。例えば「著」の後に
+    # 区切り文字が残るケースなど)を取り除く。例: "柳田邦男 著" -> "柳田邦男"
     $rolePattern = '\s*[;；,、]?\s*(編著|共著|編集|編訳|編|著者|著|訳者|訳|監修|画|作|原作)+\s*$'
     while ($s -match $rolePattern) {
         $s = $s -replace $rolePattern, ''
@@ -125,8 +128,8 @@ function ConvertTo-CleanAuthor {
     return $s
 }
 
-# Fetch and parse all candidate bibliographic records NDL Search returns for
-# one ISBN, each as a hashtable of extracted fields (or $null fields).
+# 1つのISBNについて、NDL Searchが返す候補書誌レコードをすべて取得・解析する。
+# 各候補は抽出したフィールドを持つオブジェクト(値がnullの場合もある)。
 function Get-NdlCandidates {
     param([string]$Isbn13)
 
@@ -139,9 +142,9 @@ function Get-NdlCandidates {
 
     $candidates = @()
     foreach ($record in $xml.SelectNodes("/srw:searchRetrieveResponse/srw:records/srw:record", $nsmgr)) {
-        # A record can contain several dcndl:BibResource elements sharing the
-        # same rdf:about (one carries the metadata, others just link to
-        # holdings). The one with a dcterms:title is the metadata one.
+        # 1レコードの中に同じrdf:aboutを持つdcndl:BibResourceが複数含まれる
+        # ことがある(1つが書誌本体、他は所蔵情報へのリンクのみ)。
+        # dcterms:titleを持つ方が書誌本体。
         $bibNode = $record.SelectSingleNode(".//dcndl:BibResource[dcterms:title]", $nsmgr)
         if ($null -eq $bibNode) { continue }
 
@@ -156,12 +159,11 @@ function Get-NdlCandidates {
         $label = Get-NodeText $bibNode "dcndl:seriesTitle/rdf:Description/rdf:value" $nsmgr
         $vol = Get-NodeText $bibNode "dcndl:volume/rdf:Description/rdf:value" $nsmgr
 
-        # Prefer the first creator's NDL authority name (handles Western name
-        # order correctly, e.g. "Anthony, Piers, 1934-", and naturally
-        # excludes translators/editors listed as later dcterms:creator
-        # entries); fall back to the free-text dc:creator field, stripped of
-        # trailing role words (e.g. "柳田邦男 著" -> "柳田邦男"), when no
-        # authority-controlled name is available.
+        # 最初のdcterms:creatorのNDL典拠形の名前を優先する(西欧人名の
+        # 順序も正しく扱え、例えば"Anthony, Piers, 1934-"のようになる。
+        # また後続のdcterms:creatorに載る訳者・編者は自然に除外される)。
+        # 典拠形の名前がない場合のみ、自由記述のdc:creatorから末尾の
+        # 役割語(例:「柳田邦男 著」->「柳田邦男」)を取り除いて使う。
         $author = Get-NodeText $bibNode "dcterms:creator/foaf:Agent/foaf:name" $nsmgr
         if (-not $author) {
             $authorRaw = Get-NodeText $bibNode "dc:creator" $nsmgr
@@ -220,15 +222,15 @@ function Test-HasNdc {
     return [bool]$Entry.ndc
 }
 
-# --- load input ISBNs ---
+# --- 入力ISBNの読み込み ---
 
 if (-not (Test-Path $IsbnFile)) { throw "ISBN file not found: $IsbnFile" }
 $isbns = Get-Content $IsbnFile | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" } | Select-Object -Unique
 
-# --- load existing books.json (preserved as-is except for entries we refresh) ---
+# --- 既存のbooks.jsonの読み込み(更新対象以外はそのまま保持する) ---
 
-$existing = @{}       # isbn13 -> entry (ordered hashtable), for ones we might update
-$otherEntries = @()   # entries with no isbn13, or not touched by this run
+$existing = @{}       # isbn13 -> エントリ(更新対象になりうるもの)
+$otherEntries = @()   # isbn13を持たない、今回の実行で触らないエントリ
 
 if (Test-Path $OutFile) {
     $raw = Get-Content $OutFile -Raw | ConvertFrom-Json
@@ -242,7 +244,7 @@ if (Test-Path $OutFile) {
 }
 
 $nowIso = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-$results = @{}  # isbn13 -> final entry, seeded from $existing then overwritten as processed
+$results = @{}  # isbn13 -> 最終的なエントリ。$existingから引き継ぎ、処理したものだけ上書きする
 foreach ($k in $existing.Keys) { $results[$k] = $existing[$k] }
 
 $requestCount = 0
@@ -253,7 +255,7 @@ foreach ($isbn in $isbns) {
     if (-not $needsFetch) { continue }
 
     if ($Limit -gt 0 -and $processedCount -ge $Limit) {
-        Write-Output "Limit of $Limit reached, stopping (remaining ISBNs left untouched)."
+        Write-Output "上限の $Limit 件に達したため停止します(残りのISBNは変更していません)。"
         break
     }
     $processedCount++
@@ -262,14 +264,14 @@ foreach ($isbn in $isbns) {
         Start-Sleep -Seconds $IntervalSeconds
     }
 
-    Write-Output "[$processedCount] querying NDL Search for $isbn ..."
+    Write-Output "[$processedCount] $isbn をNDL Searchに問い合わせ中 ..."
     $best = $null
     try {
         $candidates = Get-NdlCandidates -Isbn13 $isbn
         $requestCount++
         $best = Select-BestCandidate -Candidates $candidates
     } catch {
-        Write-Warning "Request failed for $isbn`: $($_.Exception.Message)"
+        Write-Warning "$isbn の取得に失敗しました: $($_.Exception.Message)"
         $requestCount++
     }
 
@@ -279,7 +281,7 @@ foreach ($isbn in $isbns) {
     if ($best) {
         Write-Output "    -> $($best.Title)"
     } else {
-        Write-Output "    -> no NDL record found"
+        Write-Output "    -> NDLにレコードが見つかりませんでした"
     }
 
     $results[$isbn] = [ordered]@{
@@ -300,14 +302,20 @@ foreach ($isbn in $isbns) {
 }
 
 $allEntries = @($results.Values) + $otherEntries
-$allEntries = $allEntries | Sort-Object { $_.id }
+# 再度@()で包む: Sort-Objectは(他の多くのコマンドレットと同様)結果が
+# 1件だけのとき配列ではなく裸のオブジェクトに戻してしまうため。
+$allEntries = @($allEntries | Sort-Object { $_.id })
 
-$json = $allEntries | ConvertTo-Json -Depth 5
-# ConvertTo-Json escapes all non-ASCII characters as \uXXXX; decode them back
-# to literal UTF-8 so books.json stays human-readable (matches the existing file).
+# -AsArray を付けることで、$allEntriesがちょうど1件のときもbooks.jsonを
+# JSON配列のまま保つ。付けないとConvertTo-Jsonがその場合だけ裸のオブジェクトを
+# 出力してしまい、アプリ側のrawBooks.map(...)が壊れる。
+$json = $allEntries | ConvertTo-Json -Depth 5 -AsArray
+# ConvertTo-Jsonは非ASCII文字をすべて\uXXXXにエスケープしてしまうため、
+# books.jsonが既存ファイルと同様に人間の読める状態を保つよう、
+# 実際のUTF-8文字に戻す。
 $json = [regex]::Replace($json, '\\u([0-9a-fA-F]{4})', { param($m) [string][char][convert]::ToInt32($m.Groups[1].Value, 16) })
 
 Set-Content -Path $OutFile -Value $json -Encoding utf8NoBOM
 
 Write-Output ""
-Write-Output "Done. $requestCount NDL Search request(s) made, $($allEntries.Count) total entries written to $OutFile"
+Write-Output "完了しました。NDL Searchへのリクエスト $requestCount 件、合計 $($allEntries.Count) 件を $OutFile に書き込みました。"
