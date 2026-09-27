@@ -61,3 +61,7 @@ python -m http.server 8000
 
 - 書誌情報・NDC分類の取得に[国立国会図書館サーチ(NDL Search)](https://ndlsearch.ndl.go.jp/)のAPIを利用しています。
 - タイトルから[カーリル](https://calil.jp/)の書誌ページへリンクしています。
+
+## AI 支援による開発について
+
+本ソフトウェアのコードおよびデータの一部は、Anthropic が提供する AI アシスタント Claude を使用して作成しています。
