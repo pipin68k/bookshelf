@@ -64,4 +64,4 @@ python -m http.server 8000
 
 ## AI 支援による開発について
 
-本ソフトウェアのコードおよびデータの一部は、Anthropic が提供する AI アシスタント Claude を使用して作成しています。
+本ソフトウェアのコードの一部は、Anthropic が提供する AI アシスタント Claude を使用して作成しています。
