@@ -12,11 +12,11 @@
 ```
 bookshelf/
   index.html         # シェルHTML
-  config.json         # 既定の表示設定
-  data/books.json      # 蔵書データ
-  static/app.js         # 読み込み・NDC分類・ソート・検索/絞り込み・描画
-  static/style.css       # スタイル
-  data/isbn13.txt          # 蔵書データ生成の入力(ISBN一覧)
+  config.json        # 既定の表示設定
+  data/books.json    # 蔵書データ
+  static/app.js      # 読み込み・NDC分類・ソート・検索/絞り込み・描画
+  static/style.css   # スタイル
+  data/isbn13.txt    # 蔵書データ生成の入力(ISBN一覧)
   scripts/ConvertTo-BooksJson.ps1 # ISBN一覧からbooks.jsonを生成/更新するPowerShellスクリプト
 ```
 
@@ -24,7 +24,7 @@ bookshelf/
 
 ### ローカルで試す
 
-`file://`では動かないため、リポジトリのルートで何らかの簡易HTTPサーバーを起動して開く。例:
+`file://`では動かないため、リポジトリのルートで何らかの簡易HTTPサーバーを起動して開く。起動後、表示されたURLをブラウザで開く。
 
 ```bash
 # Node.jsがあれば
@@ -33,8 +33,6 @@ npx serve .
 # Pythonがあれば
 python -m http.server 8000
 ```
-
-起動後、表示されたURLをブラウザで開く。
 
 ### 蔵書データ(books.json)を生成・更新する
 
@@ -58,3 +56,8 @@ python -m http.server 8000
 - タイトルには、蔵書検索サービス「カーリル」の書誌ページ(`https://calil.jp/book/{ISBN}`)へのリンクを付けられる(設定ファイルの `enableCalilLink` で有効/無効を切り替え可能、デフォルトtrue)。
 
 ![alt text](images/sample.png)
+
+## 外部サービスについて
+
+- 書誌情報・NDC分類の取得に[国立国会図書館サーチ(NDL Search)](https://ndlsearch.ndl.go.jp/)のAPIを利用しています。
+- タイトルから[カーリル](https://calil.jp/)の書誌ページへリンクしています。
