@@ -15,10 +15,13 @@
     - スキップしない場合は https://ndlsearch.ndl.go.jp/api/sru
       (recordSchema=dcndl)へ問い合わせ、-IntervalSeconds 待ってから
       レスポンスを解析する。
-    - 1つのISBNに複数の候補レコードがある場合(NDL Searchは各participating
-      library=参加図書館のレコードを集約して返す)、NDL自身の書誌
-      (リポジトリR100000002)を優先する。これが最も情報が揃っている
-      ことが多いため。なければ最初のレコードを使う。
+    - NDL Searchは全国書誌(NDL自身が作成)だけでなく、他の参加図書館や
+      版元ドットコム等、国立国会図書館以外の第三者が作成したレコードも
+      集約して返す。国立国会図書館ウェブサイトのサイトポリシー(PDL1.0)
+      上、そうした第三者作成のメタデータは対象外とされているため、
+      本スクリプトはNDL自身の書誌(リポジトリR100000002、全国書誌)の
+      レコードのみを採用する。全国書誌に対象ISBNのレコードが無い場合は、
+      他のレコードへフォールバックせず「見つからなかった」扱いにする。
     - NDLにデータがないISBNは、削除せずにスタブ(title/author等をnullの
       まま)として記録する。アプリ側の「(タイトル未設定)」表示に対応する。
   既存のbooks.jsonのうち、ISBN起点でないエントリ(手動追加した電子書籍等)
@@ -203,18 +206,17 @@ function Get-NdlCandidates {
     return $candidates
 }
 
+# NDL SearchはNDL自身の書誌(全国書誌)だけでなく、他の参加図書館や
+# 版元ドットコム等、国立国会図書館以外の第三者が作成したレコードも
+# 集約して返す。それらはNDLのサイトポリシー(PDL1.0)の対象外となる
+# 第三者著作物にあたり得るため、本スクリプトではNDL自身の書誌
+# (リポジトリ$PreferredRepository、全国書誌)のレコードだけを採用する。
+# 他リポジトリのレコードへのフォールバックは行わない
+# (全国書誌に無ければ「見つからなかった」扱いにする)。
 function Select-BestCandidate {
     param([array]$Candidates)
     if (-not $Candidates -or $Candidates.Count -eq 0) { return $null }
-    $preferred = $Candidates | Where-Object { $_.Repository -eq $PreferredRepository } | Select-Object -First 1
-    if ($preferred) {
-        if (-not $preferred.Ndc) {
-            $withNdc = $Candidates | Where-Object { $_.Ndc } | Select-Object -First 1
-            if ($withNdc) { $preferred.Ndc = $withNdc.Ndc }
-        }
-        return $preferred
-    }
-    return $Candidates | Select-Object -First 1
+    return $Candidates | Where-Object { $_.Repository -eq $PreferredRepository } | Select-Object -First 1
 }
 
 function Test-HasNdc {
